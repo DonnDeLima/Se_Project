@@ -3,7 +3,6 @@ import cv2
 import numpy as np
 import pickle
 from PIL import Image
-import io
 import os
 from sklearn.metrics.pairwise import cosine_similarity
 
@@ -32,8 +31,8 @@ def detect_and_crop_face(image_np, scale_factor=1.1, min_neighbors=5, min_size=(
     x, y, w, h = faces[0]
     return image_np[y:y + h, x:x + w]
 
-def process_image(uploaded_file):
-    image = Image.open(uploaded_file).convert("L")
+def process_image(image_file):
+    image = Image.open(image_file).convert("L")
     image_np = np.array(image)
     cropped = detect_and_crop_face(image_np)
     if cropped is None:
@@ -69,41 +68,41 @@ def compare_faces(test_image, mean_face, eigenfaces, weights):
     label_idx = np.argmax(sims) if max_sim >= 0.8 else None
     return label_idx, max_sim
 
-# Streamlit UI
+# --- Streamlit UI ---
 st.title("Face Recognition System")
 
-menu = st.sidebar.selectbox("Menu", ["Sign Up", "Sign In"])
+action = st.radio("Choose Action", ["Sign Up", "Sign In"], horizontal=True)
 
-if menu == "Sign Up":
+if action == "Sign Up":
     st.header("Register New User")
     username = st.text_input("Enter your username")
-    uploaded_file = st.file_uploader("Upload a face image", type=["jpg", "jpeg", "png"])
+    image_file = st.camera_input("Capture your face")
 
     if st.button("Register"):
         if not username:
             st.warning("Please enter a username.")
-        elif uploaded_file is None:
-            st.warning("Please upload an image.")
+        elif image_file is None:
+            st.warning("Please capture a face image.")
         else:
-            face_img = process_image(uploaded_file)
+            face_img = process_image(image_file)
             if face_img is None:
-                st.error("No face detected in the image. Try another image.")
+                st.error("No face detected in the image. Try again.")
             else:
                 save_user_face(username, face_img)
                 st.success(f"User '{username}' registered successfully!")
 
-elif menu == "Sign In":
+elif action == "Sign In":
     st.header("User Login")
     username = st.text_input("Enter your username")
-    uploaded_file = st.file_uploader("Upload your face image", type=["jpg", "jpeg", "png"])
+    image_file = st.camera_input("Capture your face")
 
     if st.button("Login"):
         if not username:
             st.warning("Please enter your username.")
-        elif uploaded_file is None:
-            st.warning("Please upload your face image.")
+        elif image_file is None:
+            st.warning("Please capture your face image.")
         else:
-            face_img = process_image(uploaded_file)
+            face_img = process_image(image_file)
             if face_img is None:
                 st.error("No face detected. Please try again.")
             else:
@@ -117,4 +116,3 @@ elif menu == "Sign In":
                         st.success(f"Welcome back, {username}! Face recognized with similarity {similarity:.2f}")
                     else:
                         st.error("Face not recognized or does not match the username.")
-
