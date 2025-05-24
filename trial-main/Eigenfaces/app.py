@@ -1,118 +1,156 @@
-import streamlit as st
+from flask import Flask, render_template, request, flash, session
+import os
 import cv2
 import numpy as np
 import pickle
 from PIL import Image
-import os
+import io
 from sklearn.metrics.pairwise import cosine_similarity
 
-# Paths
-UPLOAD_FOLDER = 'trial-main/Eigenfaces/static/uploads'
-USER_FOLDER = 'trial-main/Eigenfaces/data/users'
-MODEL_PATH = "trial-main/Eigenfaces/model/pca_model.pkl"
+app = Flask(__name__)
+app.secret_key = 'your_secret_key'  # Required for flashing messages
 
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-os.makedirs(USER_FOLDER, exist_ok=True)
+# Folder paths
+UPLOAD_FOLDER = 'static/uploads'
+USER_FOLDER = 'data/users'
 
-# Load PCA model once
-@st.cache_data
-def load_pca_model(filename=MODEL_PATH):
+if not os.path.exists(UPLOAD_FOLDER):
+    os.makedirs(UPLOAD_FOLDER)
+if not os.path.exists(USER_FOLDER):
+    os.makedirs(USER_FOLDER)
+
+# Load the PCA model
+def load_model(filename="Eigenfaces/model/fisherface_model.pkl"):
     with open(filename, "rb") as f:
         model = pickle.load(f)
     return model["mean_face"], model["eigenfaces"], model["weights"]
 
-mean_face, eigenfaces, weights = load_pca_model()
-
-def detect_and_crop_face(image_np, scale_factor=1.1, min_neighbors=5, min_size=(30, 30)):
+# Function to detect and crop face from an image
+def detect_and_crop_face(image, scale_factor=1.1, min_neighbors=5, min_size=(30, 30)):
     face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
-    faces = face_cascade.detectMultiScale(image_np, scaleFactor=scale_factor, minNeighbors=min_neighbors, minSize=min_size)
+    if face_cascade.empty():
+        raise IOError("Failed to load Haar cascade for face detection.")
+    faces = face_cascade.detectMultiScale(image, scaleFactor=scale_factor, minNeighbors=min_neighbors, minSize=min_size, flags=cv2.CASCADE_SCALE_IMAGE)
     if len(faces) == 0:
         return None
     x, y, w, h = faces[0]
-    return image_np[y:y + h, x:x + w]
+    return image[y:y + h, x:x + w]
 
-def process_image(image_file):
-    image = Image.open(image_file).convert("L")
-    image_np = np.array(image)
-    cropped = detect_and_crop_face(image_np)
-    if cropped is None:
+# Function to process uploaded image
+def process_uploaded_image(image_data):
+    image = Image.open(io.BytesIO(image_data)).convert("L")
+    image = np.array(image)
+    cropped_face = detect_and_crop_face(image)
+    if cropped_face is None:
         return None
-    resized = Image.fromarray(cropped).resize((64, 64))
-    return np.array(resized)
+    img_size = 64
+    resized_face = Image.fromarray(cropped_face).resize((img_size, img_size))
+    return np.array(resized_face)
 
-def save_user_face(username, face_image_np):
-    user_dir = os.path.join(USER_FOLDER, username)
-    os.makedirs(user_dir, exist_ok=True)
-    save_path = os.path.join(user_dir, 'face.jpg')
-    Image.fromarray(face_image_np).save(save_path)
+# Save user's face data (image and name)
+def save_user(name, face_image):
+    user_dir = os.path.join(USER_FOLDER, name)
+    if not os.path.exists(user_dir):
+        os.makedirs(user_dir)
+    file_path = os.path.join(user_dir, 'face.jpg')
+    Image.fromarray(face_image).save(file_path)
 
+# Function to retrieve all stored users
 def get_stored_users():
     users = {}
-    for username in os.listdir(USER_FOLDER):
-        user_dir = os.path.join(USER_FOLDER, username)
-        face_path = os.path.join(user_dir, 'face.jpg')
-        if os.path.isfile(face_path):
-            users[username] = face_path
+    for user_name in os.listdir(USER_FOLDER):
+        user_dir = os.path.join(USER_FOLDER, user_name)
+        if os.path.isdir(user_dir):
+            users[user_name] = user_dir
     return users
 
-def load_user_face(face_path):
-    img = Image.open(face_path).convert("L").resize((64, 64))
-    return np.array(img)
-
+# Function to compare the captured face with stored user faces
 def compare_faces(test_image, mean_face, eigenfaces, weights):
-    test_vec = test_image.flatten().reshape(-1, 1)
-    centered = test_vec - mean_face
-    test_weights = eigenfaces @ centered
-    sims = cosine_similarity(weights.T, test_weights.T).flatten()
-    max_sim = np.max(sims)
-    label_idx = np.argmax(sims) if max_sim >= 0.8 else None
-    return label_idx, max_sim
+    test_vector = test_image.flatten().reshape(-1, 1)
+    centered_test_vector = test_vector - mean_face
+    test_weights = eigenfaces @ centered_test_vector
+    similarities = cosine_similarity(weights.T, test_weights.T).flatten()
+    max_similarity = np.max(similarities)
+    recognized_label = np.argmax(similarities) if max_similarity >= 0.8 else None
+    return recognized_label, max_similarity
 
-# --- Streamlit UI ---
-st.title("Face Recognition System")
+@app.route('/')
+def index():
+    return render_template('dashboard.html')
 
-action = st.radio("Choose Action", ["Sign Up", "Sign In"], horizontal=True)
+@app.route('/signin', methods=['POST'])
+def signin():
+    user_name = request.form['username']
+    
+    # Load the PCA model
+    mean_face, eigenfaces, weights = load_model("Eigenfaces\model\pca_model.pkl")
 
-if action == "Sign Up":
-    st.header("Register New User")
-    username = st.text_input("Enter your username")
-    image_file = st.camera_input("Capture your face")
+    # Capture the live face image
+    return render_template('signin.html', user_name=user_name)
 
-    if st.button("Register"):
-        if not username:
-            st.warning("Please enter a username.")
-        elif image_file is None:
-            st.warning("Please capture a face image.")
-        else:
-            face_img = process_image(image_file)
-            if face_img is None:
-                st.error("No face detected in the image. Try again.")
-            else:
-                save_user_face(username, face_img)
-                st.success(f"User '{username}' registered successfully!")
+@app.route('/signup', methods=['POST'])
+def signup():
+    user_name = request.form['username']
+    return render_template('signup.html', user_name=user_name)
 
-elif action == "Sign In":
-    st.header("User Login")
-    username = st.text_input("Enter your username")
-    image_file = st.camera_input("Capture your face")
+@app.route('/capture_signin', methods=['POST'])
+def capture_signin():
+    user_name = request.form['username']
+    
+    # Get the live webcam image from the form
+    image_data = request.files['file'].read()
+    processed_image = process_uploaded_image(image_data)
 
-    if st.button("Login"):
-        if not username:
-            st.warning("Please enter your username.")
-        elif image_file is None:
-            st.warning("Please capture your face image.")
-        else:
-            face_img = process_image(image_file)
-            if face_img is None:
-                st.error("No face detected. Please try again.")
-            else:
-                stored_users = get_stored_users()
-                if username not in stored_users:
-                    st.error(f"User '{username}' not found. Please sign up first.")
-                else:
-                    label_idx, similarity = compare_faces(face_img, mean_face, eigenfaces, weights)
-                    user_list = list(stored_users.keys())
-                    if label_idx is not None and user_list[label_idx] == username:
-                        st.success(f"Welcome back, {username}! Face recognized with similarity {similarity:.2f}")
-                    else:
-                        st.error("Face not recognized or does not match the username.")
+    if processed_image is None:
+        flash("No face detected. Please try again.", 'error')
+        return render_template('dashboard.html', user_name=user_name)
+    
+    # Load the PCA model
+    mean_face, eigenfaces, weights = load_model("Eigenfaces\model\pca_model.pkl")
+    
+    # Compare captured face with stored faces
+    stored_users = get_stored_users()
+    recognized_label, similarity = compare_faces(processed_image, mean_face, eigenfaces, weights)
+    
+    # if recognized_label is None or list(stored_users.keys()) != user_name:     #or list(stored_users.keys()) #[recognized_label]
+    #     # If user is not recognized, redirect back with error message
+    #     flash(f"User {user_name} is not registered. Please register first!", 'error')
+    #     return render_template('dashboard.html', user_name=user_name)
+    if recognized_label is None or user_name not in stored_users:  
+        # If user is not recognized or is not in the stored users
+        flash(f"User {user_name} is not registered. Please register first!", 'error')
+        return render_template('dashboard.html', user_name=user_name)
+    
+    return render_template('vault.html', user_name=user_name)
+
+@app.route('/capture_signup', methods=['POST'])
+def capture_signup():
+    user_name = request.form['username']
+    
+    # Get the live webcam image from the form
+    image_data = request.files['file'].read()
+    processed_image = process_uploaded_image(image_data)
+
+    if processed_image is None:
+        flash("No face detected. Please try again.", 'error')
+        return render_template('dashboard.html', user_name=user_name)
+
+    # Save the user's face image and name to the database
+    save_user(user_name, processed_image)
+    
+    # Flash a success message
+    flash(f"User {user_name} registered successfully!", 'success')
+
+    # Redirect to the dashboard page
+    return render_template('dashboard.html', user_name=user_name)
+
+# Logout route
+@app.route('/logout', methods=['POST'])
+def logout():
+    # Clear the user's session
+    session.clear()
+    flash("You have been successfully logged out.", 'success')
+    return render_template('dashboard.html')
+
+if __name__ == '__main__':
+    app.run(debug=True)
