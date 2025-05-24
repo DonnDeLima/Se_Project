@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sign In</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f4f4f9;
+            color: #333;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+
+        .container {
+            text-align: center;
+            background: #fff;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+            width: 90%;
+            max-width: 400px;
+        }
+
+        h1 {
+            color: #4CAF50;
+            margin-bottom: 20px;
+        }
+
+        h2 {
+            font-size: 1em;
+            color: #666;
+            margin-bottom: 20px;
+        }
+
+        .camera-container {
+            position: relative;
+            width: 320px;
+            height: 240px;
+            margin: 0 auto 15px;
+            border: 2px solid #ccc;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+
+        video, canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+
+        button {
+            background-color: #4CAF50;
+            color: white;
+            font-size: 1em;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+
+        button:hover {
+            background-color: #45a049;
+        }
+
+        form {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Sign In</h1>
+        <h2>Welcome, {{ user_name }}. Please look at the camera to verify your identity.</h2>
+        <div class="camera-container">
+            <video id="video" autoplay></video>
+            <canvas id="gridCanvas"></canvas>
+        </div>
+        <button id="capture">Capture</button>
+        
+        <form id="uploadForm" enctype="multipart/form-data" method="POST" action="/capture_signin">
+            <input type="file" id="fileInput" name="file" style="display: none" required>
+            <input type="hidden" name="username" value="{{ user_name }}">
+            <button type="submit" id="submitBtn" style="display: none"></button>
+        </form>
+    </div>
+
+    <script>
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('gridCanvas');
+        const captureButton = document.getElementById('capture');
+        const submitButton = document.getElementById('submitBtn');
+        const fileInput = document.getElementById('fileInput');
+        const context = canvas.getContext('2d');
+
+        // Set canvas size to match video size
+        canvas.width = 320;
+        canvas.height = 240;
+
+        // Access the camera
+        navigator.mediaDevices.getUserMedia({ video: true })
+            .then(stream => {
+                video.srcObject = stream;
+                drawGridLines();
+            })
+            .catch(err => {
+                alert("Camera not accessible. Please check your settings.");
+            });
+
+        // Draw 3x3 gridlines on the canvas
+        function drawGridLines() {
+            context.clearRect(0, 0, canvas.width, canvas.height);
+
+            const numRows = 3;
+            const numCols = 3;
+            const rowHeight = canvas.height / numRows;
+            const colWidth = canvas.width / numCols;
+
+            context.strokeStyle = '#00ff00';
+            context.lineWidth = 1;
+
+            // Draw horizontal lines
+            for (let i = 1; i < numRows; i++) {
+                const y = i * rowHeight;
+                context.beginPath();
+                context.moveTo(0, y);
+                context.lineTo(canvas.width, y);
+                context.stroke();
+            }
+
+            // Draw vertical lines
+            for (let i = 1; i < numCols; i++) {
+                const x = i * colWidth;
+                context.beginPath();
+                context.moveTo(x, 0);
+                context.lineTo(x, canvas.height);
+                context.stroke();
+            }
+
+            // Loop to keep drawing over video
+            requestAnimationFrame(drawGridLines);
+        }
+
+        // Capture image from the video
+        captureButton.onclick = function () {
+            const captureCanvas = document.createElement('canvas');
+            const captureContext = captureCanvas.getContext('2d');
+            captureCanvas.width = video.videoWidth;
+            captureCanvas.height = video.videoHeight;
+            captureContext.drawImage(video, 0, 0, captureCanvas.width, captureCanvas.height);
+
+            // Convert to image file and set it to the form
+            captureCanvas.toBlob(function (blob) {
+                const file = new File([blob], "face.jpg", { type: 'image/jpeg' });
+                const dataTransfer = new DataTransfer();
+                dataTransfer.items.add(file);
+                fileInput.files = dataTransfer.files;
+                submitButton.click(); // Automatically submit the form
+            });
+        };
+
+        // Show error message alert if passed
+        // {% if error_message %}
+        //     alert("{{ error_message }}");
+        // {% endif %}
+    </script>
+</body>
+</html>
