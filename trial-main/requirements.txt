@@ -1,6 +1,5 @@
-cv2
+streamlit
+opencv-python
 numpy
-pickle
-pickle
-io
-sklearn
+scikit-learn
+pillow
