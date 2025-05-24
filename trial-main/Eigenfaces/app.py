@@ -8,9 +8,9 @@ import os
 from sklearn.metrics.pairwise import cosine_similarity
 
 # Paths
-UPLOAD_FOLDER = 'Eigenfaces/static/uploads'
-USER_FOLDER = 'Eigenfaces/data/users'
-MODEL_PATH = "Eigenfaces/model/pca_model.pkl"
+UPLOAD_FOLDER = 'static/uploads'
+USER_FOLDER = 'data/users'
+MODEL_PATH = "model/pca_model.pkl"
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(USER_FOLDER, exist_ok=True)
